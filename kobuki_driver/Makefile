@@ -1,3 +1,3 @@
 all:
-	g++ -o src/kobuki_driver.cpp kobuki_driver.o
-	./kobuki_driver
+	g++ src/kobuki_driver.cpp -o out/kobuki_driver.o
+	./out/kobuki_driver.o

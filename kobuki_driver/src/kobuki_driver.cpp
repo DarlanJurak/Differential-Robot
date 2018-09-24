@@ -32,18 +32,6 @@
 /*       "sudo ./kobuki_driver"                                                                       */
 /*                                                                                                    */
 /*====================================================================================================*/
-
-
-	/* PACOTE QUE TOCA MUSIQUINHA */
-    //unsigned int packet_size = 7;
-    // packet[0] = 0xAA;
-    // packet[1] = 0x55;
-    // packet[2] = 0x03;
-    // packet[3] = 0x04;
-    // packet[4] = 0x01;
-    // packet[5] = 0x04;
-
-
 /*====================================================================================================*/
 /* Sellecting the Serial port Number on Linux                                                         */
 /* ---------------------------------------------------------------------------------------------------*/ 
@@ -68,7 +56,8 @@
 using namespace std;
 
 void SerialConfig(int*);
-void MountPacket_Twist(unsigned char*, unsigned int, int);
+void MountPacket_Twist(unsigned char*, unsigned int, int, int, int, int, int, int);
+void MountPacket_Sound(unsigned char*, unsigned int);
 
 int main(void)
 {
@@ -76,9 +65,14 @@ int main(void)
     int             bytes_written; 
     unsigned int    packet_size = 13;       // PT
 	unsigned char   packet[packet_size];
+
+    printf("\n +----------------------------------+");
+    printf("\n |        Kobuki Driver             |");
+    printf("\n +----------------------------------+");
     
-    SerialConfig(&fd);                      // Serial configuration
-    MountPacket_Twist(packet, packet_size, 5);        //
+    SerialConfig(&fd);                          // Serial configuration
+    MountPacket_Twist(packet, packet_size, 0, 0, 5, 0, 0, 0);  // Mount move packet
+    // MountPacket_Sound(packet, packet_size);     // Mount sound packet
 	        
     for (int i = 0; i < 100; i++){   
  
@@ -95,10 +89,6 @@ int main(void)
 }
 
 void SerialConfig(int* fd){
-
-    printf("\n +----------------------------------+");
-    printf("\n |        Kobuki Driver             |");
-    printf("\n +----------------------------------+");
 
     *fd = open("/dev/ttyUSB0",O_WRONLY | O_NOCTTY | O_NONBLOCK | O_NDELAY);	
                             
@@ -125,7 +115,11 @@ void SerialConfig(int* fd){
     tcflush(*fd, TCIFLUSH);                     /* Discards old data in the rx buffer            */
 }
 
-void MountPacket_Twist(unsigned char* packet, unsigned int packet_size, int velocity){
+void MountPacket_Twist( unsigned char* packet, \
+                        unsigned int packet_size, \
+                        int velocity_x=0, int angle_x=0, \
+                        int velocity_y=0, int angle_y=0, \
+                        int velocity_z=0, int angle_z=0){
 
     unsigned char packet_checksum = 0;
 
@@ -146,13 +140,33 @@ void MountPacket_Twist(unsigned char* packet, unsigned int packet_size, int velo
     //packet[5] = 0x90; // Sub-Payload 2 - Speed
     //packet[6] = 0xFF; // Sub-Payload 3 - Speed
     uint16_t* vel = (uint16_t*)&packet[5];
-    *vel = velocity * 50;
+    *vel = velocity_y * 50;
     
     //packet[7] = 0x70; // Sub-Payload 4 - Radius
     //packet[8] = 0x20; // Sub-Payload 5 - Radius
     uint16_t* rad = (uint16_t*)&packet[7];
     // *rad = i * 50;
     *rad = 5 * 0;
+
+    packet_checksum = 0;
+    for (unsigned int i = 2; i < packet_size; i++)
+        packet_checksum ^= packet[i];
+
+    packet[packet_size -1] = packet_checksum;
+
+}
+
+void MountPacket_Sound(unsigned char* packet, unsigned int packet_size){
+
+    unsigned char packet_checksum = 0;
+
+    /* PACOTE QUE TOCA MUSIQUINHA */
+    packet[0] = 0xAA;
+    packet[1] = 0x55;
+    packet[2] = 0x03;
+    packet[3] = 0x04;
+    packet[4] = 0x01;
+    packet[5] = 0x04;
 
     packet_checksum = 0;
     for (unsigned int i = 2; i < packet_size; i++)

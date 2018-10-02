@@ -62,8 +62,14 @@ using namespace std;
 #define IN_BUFFER_SIZE 40     /* in buffer has 20 words */
 #define CFG_DELAY 1           /* wait for 3 seconds before recvn' packages */
 
-enum State {
-    IDLE, HEADER0, HEADER1, LENGTH, PACKET, CHECKSUM
+enum State { //Basic Sensor Data Feedback - 50 Hz
+
+    IDLE,               HEADER,         LENGTH,
+    TIMESTAMP_0,        TIMESTAMP_1,    BUMPER,             WHEEL_DROP, CLIFF,
+    ENCODER_LEFT_0,     ENCODER_LEFT_1, 
+    ENCODER_RIGHT_0,    ENCODER_RIGHT_1,
+    PWM_LEFT,           PWM_RIGHT,      BUTTON,
+    CHARGER,            BATTERY,        OVERCURRENT_FLAGS
 };
 
 State read_current_state = IDLE;
@@ -71,62 +77,14 @@ State read_current_state = IDLE;
 void SerialConfig(int*);
 void MountPacket_Twist(unsigned char*, unsigned int, int, int, int, int, int, int);
 void MountPacket_Sound(unsigned char*, unsigned int);
-
+// serial data receive
+static void* p_read(void*);
+void state_machine();
 void p_write(int* serial_handler);
 void p_read(int* serial_handler);
 
 Buffer* buffer;     // stores serail packets
 int serial_handler; // serial handler (file descriptor)
-
-// serial data receive
-static void* p_read(void* dummy){
-
-    uint8_t data;   // byte read
-    int read_bytes; // amount of read bytes
-
-    while(true){
-        
-        // serial read
-        read_bytes = read(serial_handler, &data, 1);
-        
-        // avaliates serial read
-        if(read_bytes < 1){
-
-            cout << "";
-
-        }else {
-
-            buffer->push(data);
-
-        }
-        
-    }
-}
-
-void state_machine(){
-
-    uint8_t data;
-    data = buffer->pop();
-
-    switch(read_current_state){
-        case IDLE:
-            if(data == 0x01){
-                read_current_state = HEADER0;
-            }
-            break;
-        case HEADER0:
-            if(data == 0x0F)
-                read_current_state = LENGTH;
-            else{
-                read_current_state = IDLE;
-            }
-        case LENGTH:
-            printf("0x%02x ", data);
-            read_current_state = IDLE;
-            break;
-    }
-
-}
 
 //startup
 int main(void)
@@ -154,6 +112,167 @@ int main(void)
 
     close(serial_handler); /* Close the serial port */
     return 0;
+
+}
+
+// serial data receive
+static void* p_read(void* dummy){
+
+    uint8_t data;   // byte read
+    int read_bytes; // amount of read bytes
+
+    while(true){
+        
+        // serial read
+        read_bytes = read(serial_handler, &data, 1);
+        
+        // avaliates serial read
+        if(read_bytes < 1){
+
+            cout << "";
+
+        }else {
+
+            buffer->push(data);
+
+        }
+        
+    }
+}
+
+/*  
+**  enum State { //Basic Sensor Data Feedback - 50 Hz  
+**     
+**      IDLE,               HEADER,         LENGTH,   
+**      TIMESTAMP_0,        TIMESTAMP_1,    BUMPER,             WHEEL_DROP, CLIFF,  
+**      ENCODER_LEFT_0,     ENCODER_LEFT_1,    
+**      ENCODER_RIGHT_0,    ENCODER_RIGHT_1,   
+**      PWM_LEFT,           PWM_RIGHT,      BUTTON,   
+**      CHARGER,            BATTERY,        OVERCURRENT_FLAGS   
+**  }; 
+*/  
+
+void state_machine(){
+
+    uint8_t data;
+    data = buffer->pop();
+    uint8_t read_packet[IN_BUFFER_SIZE];
+
+    switch(read_current_state){
+
+        case IDLE:
+
+            if(data == 0x01){
+                read_current_state = HEADER;
+            }
+            break;
+
+        case HEADER:
+
+            if(data == 0x0F)
+                read_current_state = LENGTH;
+            else{
+                read_current_state = IDLE;
+            }
+
+        case LENGTH:
+
+            printf("\nTimestamp 0: 0x%02x ", data);
+            read_current_state = TIMESTAMP_0;
+            break;
+        
+        case TIMESTAMP_0:
+
+            printf("\nTimestamp 1: 0x%02x ", data);
+            read_current_state = TIMESTAMP_1;
+            break;
+
+        case TIMESTAMP_1:
+
+            printf("\nBumper: 0x%02x ", data);
+            read_current_state = BUMPER;
+            break;
+
+        case BUMPER:
+
+            printf("\nWheel Drop: 0x%02x ", data);
+            read_current_state = WHEEL_DROP;
+            break;
+
+        case WHEEL_DROP:
+
+            printf("\nCliff: 0x%02x ", data);
+            read_current_state = CLIFF;
+            break;
+
+        case CLIFF:
+
+            printf("\nEncoder Left 0: 0x%02x ", data);
+            read_current_state = ENCODER_LEFT_0;
+            break;
+
+        case ENCODER_LEFT_0:
+
+            printf("\nEncoder Left 1: 0x%02x ", data);
+            read_current_state = ENCODER_LEFT_1;
+            break;
+
+        case ENCODER_LEFT_1:
+
+            printf("\nEncoder Right 0: 0x%02x ", data);
+            read_current_state = ENCODER_RIGHT_0;
+            break;
+
+        case ENCODER_RIGHT_0:
+
+            printf("\nEncoder Right 1: 0x%02x ", data);
+            read_current_state = ENCODER_RIGHT_1;
+            break;
+
+        case ENCODER_RIGHT_1:
+
+            printf("\nPWM Left: 0x%02x ", data);
+            read_current_state = PWM_LEFT;
+            break;
+        
+        case PWM_LEFT:
+
+            printf("\nPWM Right: 0x%02x ", data);
+            read_current_state = PWM_RIGHT;
+            break;
+
+        case PWM_RIGHT:
+
+            printf("\nButton: 0x%02x ", data);
+            read_current_state = BUTTON;
+            break;
+
+        case BUTTON:
+
+            printf("\nCharger: 0x%02x ", data);
+            read_current_state = CHARGER;
+            break;
+
+        case CHARGER:
+
+            printf("\nBattery: 0x%02x ", data);
+            read_current_state = BATTERY;
+            break;
+
+        case BATTERY:
+
+            printf("\nOvercurrent Flags: 0x%02x ", data);
+            read_current_state = OVERCURRENT_FLAGS;
+            break;
+
+        case OVERCURRENT_FLAGS:
+
+            printf("\nOvercurrent Flags: 0x%02x ", data);
+            read_current_state = IDLE;
+            break;
+
+        default: break;
+    }
 
 }
 

@@ -14,8 +14,8 @@
 /*====================================================================================================*/
 
 /*====================================================================================================*/
-/* Basic serial communication from:  					                                              */
-/* www.xanthium.in										                                              */
+/* Basic serial communication from:  					                              */
+/* www.xanthium.in				                                                      */
 /* Copyright (C) 2014 Rahul.S                                                                         */
 /*====================================================================================================*/
 
@@ -24,7 +24,7 @@
 /* ---------------------------------------------------------------------------------------------------*/ 
 /* 1) Compile the  kobuki_driver.c  file using gcc on the terminal (without quotes)                   */
 /*                                                                                                    */
-/*	" gcc -o kobuki_driver kobuki_driver.c "                                                          */
+/*	" gcc -o kobuki_driver kobuki_driver.c "                                                      */
 /*                                                                                                    */
 /* 2) Linux will not allow you to access the serial port from user space,you have to be root.So use   */
 /*    "sudo" command to execute the compiled binary as super user.                                    */
@@ -44,91 +44,155 @@
 /* use "man termios" to get more info about  termios structure */
 /*-------------------------------------------------------------*/
 
-	#include <cstring>
-	#include <iostream>
-    #include <stdio.h>
-    #include <fcntl.h>   /* File Control Definitions           */
-    #include <termios.h> /* POSIX Terminal Control Definitions */
-    #include <unistd.h>  /* UNIX Standard Definitions 	       */ 
-    #include <errno.h>   /* ERROR Number Definitions           */
-    #include <stdint.h>
+#include <cstring>
+#include <iostream>
+#include <stdio.h>
+#include <fcntl.h>   /* File Control Definitions           */
+#include <termios.h> /* POSIX Terminal Control Definitions */
+#include <unistd.h>  /* UNIX Standard Definitions 	       */ 
+#include <errno.h>   /* ERROR Number Definitions           */
+#include <stdint.h>
+#include <cstdlib>
+
+#include "Buffer/Buffer.h"
 
 using namespace std;
+
+#define SOUND_PACKET_SIZE 7
+#define IN_BUFFER_SIZE 40     /* in buffer has 20 words */
+#define CFG_DELAY 1           /* wait for 3 seconds before recvn' packages */
+
+enum State {
+    IDLE, HEADER0, HEADER1, LENGTH, PACKET, CHECKSUM
+};
+
+State read_current_state = IDLE;
 
 void SerialConfig(int*);
 void MountPacket_Twist(unsigned char*, unsigned int, int, int, int, int, int, int);
 void MountPacket_Sound(unsigned char*, unsigned int);
 
-int main(void)
-{
-    int             fd;
-    int             written_bytes; 
-    int             read_bytes;
-    unsigned int    packet_size = 13;       // PT
-    // unsigned int    packet_size = 7;        // Sound
-	unsigned char   packet[packet_size];
+void p_write(int* serial_handler);
+void p_read(int* serial_handler);
 
-    unsigned int    incoming_packet_size = 20;
-	unsigned char   incoming_packet[incoming_packet_size] = {};
+Buffer* buffer;     // stores serail packets
+int serial_handler; // serial handler (file descriptor)
 
-    printf("\n +----------------------------------+");
-    printf("\n |        Kobuki Driver             |");
-    printf("\n +----------------------------------+");
-    
-    SerialConfig(&fd);                                          // Serial configuration
-    MountPacket_Twist(packet, packet_size, 0, 0, 5, 0, 0, 0);   // Mount move packet
-    // MountPacket_Sound(packet, packet_size);                     // Mount sound packet
+// serial data receive
+static void* p_read(void* dummy){
 
-    // printf("\n");    
-    // for (int j = 0; j < sizeof incoming_packet; j++)
-    //         printf("0x%02x ", incoming_packet[j]);
+    uint8_t data;   // byte read
+    int read_bytes; // amount of read bytes
 
-    for (int i = 0; i < 100; i++){   
- 
-        // written_bytes = write(fd, packet, packet_size);
-        // printf("written %d bytes\n", written_bytes);
+    while(true){
         
-        sleep(3);
+        // serial read
+        read_bytes = read(serial_handler, &data, 1);
+        
+        // avaliates serial read
+        if(read_bytes < 1){
 
-        read_bytes = read (fd, incoming_packet, incoming_packet_size);
-        printf("Read %d bytes\n", read_bytes);
+            cout << "";
 
-        for (int j = 0; j < sizeof incoming_packet; j++)
-            printf("0x%02x ", incoming_packet[j]);
+        }else {
+
+            buffer->push(data);
+
+        }
         
     }
+}
 
-    close(fd); /* Close the serial port */
+void state_machine(){
 
-	return 0;
+    uint8_t data;
+    data = buffer->pop();
+
+    switch(read_current_state){
+        case IDLE:
+            if(data == 0x01){
+                read_current_state = HEADER0;
+            }
+            break;
+        case HEADER0:
+            if(data == 0x0F)
+                read_current_state = LENGTH;
+            else{
+                read_current_state = IDLE;
+            }
+        case LENGTH:
+            printf("0x%02x ", data);
+            read_current_state = IDLE;
+            break;
+    }
 
 }
 
-void SerialConfig(int* fd){
+//startup
+int main(void)
+{
+    SerialConfig(&serial_handler);  /* Serial configuration */
 
-    *fd = open("/dev/ttyUSB0",O_WRONLY | O_NOCTTY | O_NONBLOCK | O_NDELAY);	
+    printf("\n +----------------------------------+");
+    printf("\n |        Kobuki Driver             |");
+    printf("\n +----------------------------------+\n");
+
+	// buffer initialization
+	buffer = new Buffer();
+
+	// in a separated thread, bufferize the serial data
+    pthread_t t;
+    if(pthread_create(&t, NULL, &p_read, NULL)){
+        cout << "error creating thread" <<endl;
+    }
+
+    for (;;){   
+       
+        state_machine();
+        //sleep(CFG_DELAY);
+    }
+
+    close(serial_handler); /* Close the serial port */
+    return 0;
+
+}
+
+
+void p_write(int* serial_handler){
+
+    unsigned char* out_pkt = (unsigned char*) malloc(sizeof(unsigned char) * SOUND_PACKET_SIZE);
+    MountPacket_Sound(out_pkt, SOUND_PACKET_SIZE);
+
+    write(*serial_handler, out_pkt, SOUND_PACKET_SIZE);
+    free(out_pkt);
+}
+
+void SerialConfig(int* serial_handler){
+
+    *serial_handler = open("/dev/ttyUSB0",O_RDWR | O_NOCTTY | O_NONBLOCK | O_NDELAY);
                             
-	if (fd < 0)
+    if (serial_handler < 0)
 		cout << "Error " << errno << " opening " << "/dev/ttyUSB0" << ": " << strerror (errno) << endl;
 
-    struct termios tty;	                        /* Create the structure                          */
-    tcgetattr(*fd, &tty);	                    /* Get the current attributes of the Serial port */
+    struct termios tty;	                /* Create the structure                                     */
+    tcgetattr(*serial_handler, &tty);   /* Get the current attributes of the Serial port            */
 
-    /* Setting the Baud rate */         
-    cfsetispeed(&tty, B115200);                 /* Set Read  Speed as 9600                       */
-    cfsetospeed(&tty, B115200);                 /* Set Write Speed as 9600                       */
-
-    /* 8N1 Mode */          
-    tty.c_cflag &= ~PARENB;                     /* Disables the Parity Enable bit(PARENB),So No Parity   */
-    tty.c_cflag &= ~CSTOPB;                     /* CSTOPB = 2 Stop bits,here it is cleared so 1 Stop bit */
-    tty.c_cflag |=  CS8;                        /* Set the data bits = 8                                 */
-
-    if((tcsetattr(*fd, TCSANOW, &tty)) != 0)    /* Set the attributes to the termios structure*/
-        printf("\n  ERROR ! in Setting attributes");
-    else
-        printf("\n  BaudRate = 115200 \n  StopBits = 1 \n  Parity   = none");
+    /* Setting the Baud rate */                     
+    cfsetispeed(&tty, B115200);         /* Set Read  Speed as 9600                                  */
+    cfsetospeed(&tty, B115200);         /* Set Write Speed as 9600                                  */
         
-    tcflush(*fd, TCIFLUSH);                     /* Discards old data in the rx buffer            */
+    /* 8N1 Mode */                  
+    tty.c_cflag &= ~PARENB;             /* Disables the Parity Enable bit(PARENB),So No Parity      */
+    tty.c_cflag &= ~CSTOPB;             /* CSTOPB = 2 Stop bits,here it is cleared so 1 Stop bit    */
+    tty.c_cflag |=  CS8;                /* Set the data bits = 8                                    */
+
+    printf(
+        ((tcsetattr(*serial_handler, TCSANOW, &tty)) != 0)
+            ? "\n  ERROR ! in Setting attributes"
+            : "\n  BaudRate = 115200 \n  StopBits = 1 \n  Parity   = none"
+    );
+
+    tcflush(*serial_handler, TCIFLUSH);                     /* Discards old data in the rx buffer            */
 }
 
 void MountPacket_Twist( unsigned char* packet,
@@ -138,6 +202,7 @@ void MountPacket_Twist( unsigned char* packet,
                         int velocity_z=0, int angle_z=0){
 
     unsigned char packet_checksum = 0;
+    packet = (unsigned char*) malloc(packet_size * sizeof(unsigned char));
 
     /* PACOTE QUE FAZ MOVER */
     packet[0] = 0xAA; // Header 0
@@ -177,17 +242,16 @@ void MountPacket_Sound(unsigned char* packet, unsigned int packet_size){
     unsigned char packet_checksum = 0;
 
     /* PACOTE QUE TOCA MUSIQUINHA */
-    packet[0] = 0xAA;
-    packet[1] = 0x55;
-    packet[2] = 0x03;
-    packet[3] = 0x04;
-    packet[4] = 0x01;
-    packet[5] = 0x04;
+    packet[0] = 0xAA;  //header 0
+    packet[1] = 0x55;  //header 1
+    packet[2] = 0x03;  //length
+    packet[3] = 0x04;  //id
+    packet[4] = 0x01;  //size 
+    packet[5] = 0x01;  //tune
 
     packet_checksum = 0;
     for (unsigned int i = 2; i < packet_size; i++)
         packet_checksum ^= packet[i];
 
     packet[packet_size -1] = packet_checksum;
-
 }
